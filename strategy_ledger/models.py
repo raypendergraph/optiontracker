@@ -5,14 +5,6 @@ from django.utils import timezone
 from django.db import models
 
 
-class SecurityPosition(models.Model):
-    ticker = models.CharField(max_length=5)
-    purchase_date = models.DateField()
-    purchase_price = models.PositiveIntegerField
-    exit_price = models.PositiveIntegerField
-    shares = models.IntegerField()
-
-
 class OptionPositionType(Enum):
     Call = 1
     Put = 2
@@ -38,14 +30,25 @@ class StrategyAlert(models.Model):
     )
 
     key = models.CharField(max_length=50)
-    settings = jsonb.JSONField()
+    settings = jsonb.JSONField(null=True, blank=True)
     frequency = models.IntegerField(choices=FrequencyChoices, default=AlertFrequencyType.OnDemand.value)
-    note = models.TextField()
+    note = models.TextField(null=True, blank=True)
 
 
 class Strategy(models.Model):
-    date = models.DateField()
+    date = models.DateField(default=timezone.now)
     alerts = models.ManyToManyField(StrategyAlert)
+    is_tax_sheltered = models.BooleanField(default=False)
+
+
+class SecurityPosition(models.Model):
+    strategy = models.ForeignKey(Strategy)
+    ticker = models.CharField(max_length=5)
+    shares = models.IntegerField()
+    purchase_date = models.DateField(default=timezone.now)
+    purchase_price = models.PositiveIntegerField()
+    sell_date = models.DateField()
+    sell_price = models.PositiveIntegerField()
 
 
 class OptionPosition(models.Model):
@@ -55,17 +58,17 @@ class OptionPosition(models.Model):
     )
 
     strategy = models.ForeignKey(Strategy)
-    option_symbol = models.CharField(max_length=20)
-    strike = models.PositiveIntegerField()
+    option_symbol = models.CharField(max_length=20, blank=False)
+    contracts = models.IntegerField()
     expiry_date = models.DateField()
+    strike = models.PositiveIntegerField()
+    position_type = models.IntegerField(choices=PositionChoices, default=OptionPositionType.Call.value)
     entry_date = models.DateField(default=timezone.now)
     entry_price = models.PositiveIntegerField()
     exit_price = models.IntegerField()
     exit_date = models.DateField()
-    contracts = models.IntegerField()
-    position_type = models.IntegerField(choices=PositionChoices, default=OptionPositionType.Call.value)
     rolled_to = models.ForeignKey('OptionPosition', related_name='rolled_from')
-    note = models.TextField()
+    note = models.TextField(null=True, blank=True)
 
 
 class StrategyAdjustmentType(Enum):
@@ -81,8 +84,8 @@ class StrategyAdjustment(models.Model):
         (StrategyAdjustmentType.Dividend.value, 'Dividend'),
     )
     strategy = models.ForeignKey(Strategy)
-    date = models.DateField()
+    date = models.DateField(timezone.now)
     quantity = models.PositiveSmallIntegerField()
     unit_amount = models.IntegerField()
     type = models.IntegerField(choices=TypeChoices, default=StrategyAdjustmentType.TradingFee.value)
-    note = models.TextField()
+    note = models.TextField(null=True, blank=True)
