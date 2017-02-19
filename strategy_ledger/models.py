@@ -1,8 +1,12 @@
 from enum import Enum
+from re import _compile_repl
 
+import core
 from django.contrib.postgres.fields import jsonb
 from django.utils import timezone
 from django.db import models
+
+from core.types import StrategyAdjustmentType
 
 
 class OptionPositionType(Enum):
@@ -40,6 +44,19 @@ class Strategy(models.Model):
     alerts = models.ManyToManyField(StrategyAlert)
     is_tax_sheltered = models.BooleanField(default=False)
 
+    @property
+    def metrics(self) -> core.CoveredCallStrategyMetrics:
+        if hasattr(self, '_cached_metrics'):
+            return self._cached_metrics
+        else:
+            model = Strategy()
+            options = [position.as_value_type() for position in model.optionposition_set.all()]
+            if not options:
+                self._cached_metrics = core.CoveredCallStrategyMetrics.Zero
+            #TODO multiple securities
+            entry_position = [security.as_value_type() for security in model.securityposition_set.all()]
+            adjustments = [adjustment.as_value_type() for adjustment in model.adjustment_set.all()]
+            self._cached_metrics = core.covered_call_exercised_strategy_metrics(entry_position, options, adjustments)
 
 class SecurityPosition(models.Model):
     strategy = models.ForeignKey(Strategy)
@@ -49,6 +66,9 @@ class SecurityPosition(models.Model):
     purchase_price = models.PositiveIntegerField()
     sell_date = models.DateField()
     sell_price = models.PositiveIntegerField()
+
+    def as_value_type(self):
+        return core.SecurityPosition(self.purchase_price, self.shares)
 
 
 class OptionPosition(models.Model):
@@ -70,22 +90,22 @@ class OptionPosition(models.Model):
     rolled_to = models.ForeignKey('OptionPosition', related_name='rolled_from')
     note = models.TextField(null=True, blank=True)
 
-
-class StrategyAdjustmentType(Enum):
-    TradingFee = 1
-    OptionCommission = 2
-    Dividend = 3
+    def as_value_type(self):
+        return core.OptionPosition(self.expiry_date, self.strike, self.entry_price, self.contracts)
 
 
 class StrategyAdjustment(models.Model):
     TypeChoices = (
-        (StrategyAdjustmentType.TradingFee.value, 'Trading Fee'),
-        (StrategyAdjustmentType.OptionCommission.value, 'Option Commission'),
-        (StrategyAdjustmentType.Dividend.value, 'Dividend'),
+        (core.StrategyAdjustmentType.TradingFee.value, 'Trading Fee'),
+        (core.StrategyAdjustmentType.OptionCommission.value, 'Option Commission'),
+        (core.StrategyAdjustmentType.Dividend.value, 'Dividend'),
     )
     strategy = models.ForeignKey(Strategy)
     date = models.DateField(timezone.now)
     quantity = models.PositiveSmallIntegerField()
     unit_amount = models.IntegerField()
-    type = models.IntegerField(choices=TypeChoices, default=StrategyAdjustmentType.TradingFee.value)
+    type = models.IntegerField(choices=TypeChoices, default=core.StrategyAdjustmentType.TradingFee.value)
     note = models.TextField(null=True, blank=True)
+
+    def as_value_type(self):
+        return core.StrategyAdjustment(self.unit_amount, self.quantity, StrategyAdjustmentType(self.type))
